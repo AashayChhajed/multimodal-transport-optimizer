@@ -24,7 +24,7 @@ Database
 
 ---
 
-## 📂 Project Structure
+## Project Structure
 
 ```
 multimodal-transport-optimizer/
@@ -87,15 +87,34 @@ Make sure you have installed:
 
 ---
 
-## Team Workflow
+## Branching Strategy
 
-- Main branch: main
-- Work on feature branches:
-  - frontend
-  - backend
-  - feature/<name>
+### Branches
 
-Use Pull Requests for merging.
+- **main**
+  - Stable branch
+  - Contains production-ready and reviewed code only
+
+- **dev**
+  - Integration branch
+  - All features are merged here before going to `main`
+
+- **frontend**
+  - Used for frontend (Next.js, UI, shadcn) development
+  - Merged into `dev` via Pull Requests
+
+- **backend**
+  - Used for backend (Spring Boot, APIs, database) development
+  - Merged into `dev` via Pull Requests
+
+### Workflow
+
+1. Developers work on either `frontend` or `backend` branch
+2. Changes are pushed to the respective branch
+3. A Pull Request is opened to merge into `dev`
+4. After testing and review, `dev` is merged into `main`
+
+This workflow helps keep the `main` branch stable while allowing parallel development.
 
 ---
 
