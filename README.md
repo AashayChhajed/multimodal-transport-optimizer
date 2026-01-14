@@ -30,7 +30,6 @@ Database
 multimodal-transport-optimizer/
 ├── backend/     # Spring Boot backend
 ├── frontend/    # Next.js frontend
-├── docs/        # Architecture & design docs
 └── README.md
 ```
 
