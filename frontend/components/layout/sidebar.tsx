@@ -1,6 +1,9 @@
-'use client';
+"use client";
 
-import { use, useState } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useState } from "react";
+
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -8,19 +11,19 @@ import {
   PackagePlus,
   Route,
   BarChart3,
-  Menu
+  Menu,
 } from "lucide-react";
 
 const navItems = [
-  { label: "Dashboard", icon: LayoutDashboard, key: "dashboard" },
-  { label: "Create Shipment", icon: PackagePlus, key: "create" },
-  { label: "Optimization Result", icon: BarChart3, key: "optimization" },
-  { label: "Routes", icon: Route, key: "routes" },
+  { label: "Dashboard", icon: LayoutDashboard, href: "/" },
+  { label: "Create Shipment", icon: PackagePlus, href: "/create-shipment" },
+  { label: "Optimization Result", icon: BarChart3, href: "/optimization" },
+  { label: "Routes", icon: Route, href: "/route" },
 ];
 
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
-  const [active, setActive] = useState("dashboard");
+  const pathname = usePathname();
 
   return (
     <aside
@@ -29,7 +32,6 @@ export default function Sidebar() {
         collapsed ? "w-16" : "w-64"
       )}
     >
-      {/* Top toggle */}
       <div className="flex items-center justify-between p-3 border-b">
         {!collapsed && <span className="font-semibold">Transport Optimizer</span>}
         <Button
@@ -37,28 +39,29 @@ export default function Sidebar() {
           size="icon"
           onClick={() => setCollapsed(!collapsed)}
         >
-          {collapsed ? <Menu /> : <Menu/>}
+          <Menu />
         </Button>
       </div>
 
-      {/* Navigation */}
       <nav className="flex-1 p-2 space-y-1">
         {navItems.map((item) => {
           const Icon = item.icon;
-          const isActive = active === item.key;
+          const isActive = pathname === item.href;
 
           return (
             <Button
-              key={item.key}
+              key={item.href}
+              asChild
               variant={isActive ? "secondary" : "ghost"}
               className={cn(
                 "w-full justify-start gap-3",
                 collapsed && "justify-center"
               )}
-              onClick={() => setActive(item.key)}
             >
-              <Icon className="h-5 w-5" />
-              {!collapsed && <span>{item.label}</span>}
+              <Link href={item.href}>
+                <Icon className="h-5 w-5" />
+                {!collapsed && <span>{item.label}</span>}
+              </Link>
             </Button>
           );
         })}
