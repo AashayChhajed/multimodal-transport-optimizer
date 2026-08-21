@@ -1,0 +1,37 @@
+
+DATA LEAKAGE ANALYSIS
+=====================
+
+Features INCLUDED (available before departure):
+  - source_city: Known at booking time
+  - destination_city: Known at booking time
+  - transport_mode: Chosen before departure
+  - distance_km: Computed from cities, known before departure
+  - shipment_weight_kg: Known at booking time
+  - traffic_level: Pre-trip estimate or real-time feed at departure
+  - weather_condition: Forecast at departure time
+  - departure_hour: Scheduled departure
+  - day_of_week: Known at booking time
+  - month: Known at booking time
+  - transfer_count: Part of route plan, known before departure
+  - historical_delay_rate: Statistical measure, computed from historical data
+
+Features EXCLUDED (would be target leakage):
+  - actual_delivery_hours: This IS the target
+  - actual_traffic_encountered: Only known after delivery
+  - actual_weather_encountered: Only known after delivery
+  - delay_incidents: Only known after delivery
+  - driver_id / carrier_performance: Post-hoc information
+  - actual route taken vs planned: Post-hoc information
+
+FINAL FEATURE SET:
+  Numerical: distance_km, shipment_weight_kg, departure_hour,
+             day_of_week, month, transfer_count, historical_delay_rate
+  Categorical: source_city, destination_city, transport_mode,
+               traffic_level, weather_condition
+
+TARGET: actual_delivery_hours
+
+RATIONALE: Every input feature represents information that would
+be available at the time a prediction is requested (before or at
+departure). No post-departure information is included.

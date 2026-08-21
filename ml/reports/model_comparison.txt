@@ -1,0 +1,37 @@
+
+======================================================================
+MODEL COMPARISON - ETA PREDICTION
+======================================================================
+Dataset: 3000 synthetic records | Seed: 42 | Test size: 20%
+
+Model                      Train MAE   Test MAE  Train RMSE   Test RMSE   Train R2    Test R2
+----------------------------------------------------------------------
+Linear Regression             5.3799     5.6013      9.4346      9.4564     0.7929     0.7885
+Random Forest                 1.1943     2.5531      2.7353      5.3853     0.9826     0.9314
+XGBoost                       0.2750     1.8639      0.3716      4.1498     0.9997     0.9593
+======================================================================
+
+ANALYSIS:
+
+Best model by test MAE: XGBoost (1.8639)
+
+Overfitting analysis:
+  Linear Regression - Train R2: 0.7929, Test R2: 0.7885, Gap: 0.0045
+  Random Forest     - Train R2: 0.9826, Test R2: 0.9314, Gap: 0.0512
+  XGBoost           - Train R2: 0.9997, Test R2: 0.9593, Gap: 0.0404
+
+Key observations:
+  - Linear Regression shows minimal overfitting (low train-test gap)
+  - Random Forest train-test gap (0.0512) suggests moderate overfitting
+  - XGBoost shows good generalization
+
+Why XGBoost performs best:
+  - Tree-based models capture non-linear interactions between traffic, weather, and mode
+  - Non-linear models handle multiplicative interactions between features
+  - The synthetic data contains controlled non-linearity (multiplicative factors)
+    that tree-based models can exploit
+
+Interpretation of R2 scores:
+  - An R2 near 1.0 on synthetic data does NOT imply real-world accuracy
+  - The model may be learning the exact generation formula
+  - This is expected and acceptable for a synthetic data experiment

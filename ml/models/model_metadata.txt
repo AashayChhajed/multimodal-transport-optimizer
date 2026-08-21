@@ -1,0 +1,42 @@
+
+MODEL METADATA
+==============
+Model type:       XGBoost
+Saved at:         2026-08-21T19:36:59.685393
+Python version:   3.11.x
+Dependencies:     pandas, numpy, scikit-learn, xgboost, joblib
+
+Feature order (input):
+  1. source_city
+  2. destination_city
+  3. transport_mode
+  4. distance_km
+  5. shipment_weight_kg
+  6. traffic_level
+  7. weather_condition
+  8. departure_hour
+  9. day_of_week
+  10. month
+  11. transfer_count
+  12. historical_delay_rate
+
+Preprocessing:
+  Numeric features (7): StandardScaler
+    distance_km, shipment_weight_kg, departure_hour, day_of_week, month, transfer_count, historical_delay_rate
+
+  Categorical features (5): OneHotEncoder
+    source_city, destination_city, transport_mode, traffic_level, weather_condition
+
+Training performance:
+  MAE:  1.8639
+  R2:   0.9593
+
+Model version: 1.0.0
+Dataset:       Synthetic (N=3000, seed=42)
+Pipeline:      sklearn Pipeline(preprocessor, model)
+
+Loading example:
+    import joblib
+    data = joblib.load("ml/models/eta_model.joblib")
+    pipeline = data["pipeline"]
+    # pipeline.predict(X) where X has the same columns as training data
