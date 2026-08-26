@@ -7,7 +7,11 @@ import com.optimizer.backend.Entity.Shipment;
 import com.optimizer.backend.Exception.BadRequestException;
 import com.optimizer.backend.Repository.OptimizationResultRepository;
 import com.optimizer.backend.graph.*;
+import com.optimizer.backend.ml.EtaPredictionResponse;
+import com.optimizer.backend.ml.EtaPredictionService;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,15 +21,19 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class OptimizationService {
 
+    private static final Logger log = LoggerFactory.getLogger(OptimizationService.class);
+
     private final TransportGraphLoader graphLoader;
     private final OptimizationResultRepository optimizationResultRepository;
     private final TransferTimeCalculator transferTimeCalculator;
+    private final EtaPredictionService etaPredictionService;
 
     @Transactional
     public OptimizationResponseDTO optimize(Shipment shipment, OptimizationType optimizationType,
@@ -77,7 +85,26 @@ public class OptimizationService {
         optimizationResult.setPath(pathJson);
         optimizationResultRepository.save(optimizationResult);
 
-        return toResponse(shipmentId, optimizationType, pathResult, totalTimeWithTransfer, graph);
+        OptimizationResponseDTO response = toResponse(shipmentId, optimizationType, pathResult, totalTimeWithTransfer, graph);
+
+        // Step 6: Attempt ML ETA prediction (non-blocking)
+        try {
+            Optional<EtaPredictionResponse> etaResponse = etaPredictionService.predictEta(pathResult, weight, graph);
+            if (etaResponse.isPresent()) {
+                response.setPredictedEtaHours(etaResponse.get().predictedEtaHours());
+                response.setEtaPredictionAvailable(true);
+            } else {
+                response.setPredictedEtaHours(null);
+                response.setEtaPredictionAvailable(false);
+                log.info("ETA prediction unavailable for shipment {}", shipmentId);
+            }
+        } catch (Exception e) {
+            log.warn("ETA prediction failed for shipment {}: {}", shipmentId, e.getMessage());
+            response.setPredictedEtaHours(null);
+            response.setEtaPredictionAvailable(false);
+        }
+
+        return response;
     }
 
     @Transactional(readOnly = true)

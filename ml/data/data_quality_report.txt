@@ -26,99 +26,135 @@ Duplicate rows: 0
 
 Target (actual_delivery_hours) statistics:
 count    3000.000000
-mean       21.527280
-std        20.702614
-min         0.380000
-25%         8.737500
-50%        16.020000
-75%        26.825000
-max       215.300000
+mean       24.704777
+std        16.189863
+min         0.880000
+25%        12.110000
+50%        22.195000
+75%        33.902500
+max       106.760000
 
 Numerical feature distributions:
        distance_km  shipment_weight_kg  departure_hour  day_of_week     month  transfer_count  historical_delay_rate  actual_delivery_hours
 count     3000.000            3000.000        3000.000     3000.000  3000.000        3000.000               3000.000               3000.000
-mean       920.878            2214.661          12.440        2.953     6.675           0.730                  0.151                 21.527
-std        840.967            3577.888           5.468        2.005     3.493           0.875                  0.087                 20.703
-min         50.000              15.900           0.000        0.000     1.000           0.000                  0.000                  0.380
-25%        389.575             503.700           8.000        1.000     4.000           0.000                  0.076                  8.738
-50%        674.300            1049.200          13.000        3.000     7.000           0.000                  0.151                 16.020
-75%       1125.375            2457.125          17.000        5.000    10.000           1.000                  0.228                 26.825
-max       6000.000           50000.000          23.000        6.000    12.000           3.000                  0.300                215.300
+mean      1066.998            2222.665          12.444        2.948     6.674           0.728                  0.151                 24.705
+std        492.814            3583.227           5.463        2.004     3.495           0.873                  0.087                 16.190
+min        120.200              15.900           0.000        0.000     1.000           0.000                  0.000                  0.880
+25%        662.950             504.950           8.000        1.000     4.000           0.000                  0.076                 12.110
+50%       1042.500            1048.150          13.000        3.000     7.000           0.000                  0.151                 22.195
+75%       1402.100            2460.850          17.000        5.000    10.000           1.000                  0.228                 33.902
+max       2429.000           50000.000          23.000        6.000    12.000           3.000                  0.300                106.760
 
 Categorical feature distributions:
 
   source_city:
   source_city
-Adana        389
-Gaziantep    382
-Konya        381
-Ankara       380
-Bursa        379
-Antalya      371
-Istanbul     370
-Izmir        348
+Bengaluru        171
+Jaipur           165
+Chennai          162
+Surat            161
+Guwahati         159
+Coimbatore       159
+Pune             159
+Lucknow          158
+Kochi            155
+Patna            150
+Visakhapatnam    149
+Delhi            148
+Bhopal           143
+Bhubaneswar      142
+Nagpur           140
+Mumbai           139
+Hyderabad        138
+Indore           136
+Kolkata          135
+Ahmedabad        131
 
   destination_city:
   destination_city
-Bursa        411
-Ankara       397
-Adana        380
-Gaziantep    379
-Istanbul     368
-Izmir        362
-Antalya      355
-Konya        348
+Kolkata          171
+Kochi            170
+Surat            166
+Chennai          164
+Pune             161
+Delhi            153
+Coimbatore       150
+Patna            150
+Bhopal           148
+Jaipur           148
+Hyderabad        148
+Indore           147
+Lucknow          147
+Ahmedabad        146
+Visakhapatnam    144
+Bengaluru        140
+Bhubaneswar      139
+Mumbai           137
+Guwahati         136
+Nagpur           135
 
   transport_mode:
   transport_mode
-ROAD    1514
-RAIL     877
-AIR      609
+ROAD    1542
+RAIL     889
+AIR      569
 
   traffic_level:
   traffic_level
 MEDIUM    1222
-LOW       1198
-HIGH       580
+LOW       1196
+HIGH       582
 
   weather_condition:
   weather_condition
-CLEAR    1477
-RAIN      770
-SNOW      466
-STORM     287
+CLEAR    1478
+RAIN      768
+SNOW      464
+STORM     290
 
-Target outliers (IQR method): 183 (6.1%)
+Target outliers (IQR method): 58 (1.9%)
+
+Distance statistics:
+  Min: 120.2 km
+  Max: 2429.0 km
+  Mean: 1067.0 km
+  Median: 1042.5 km
+
+City coverage:
+  Unique source cities: 20
+  Unique destination cities: 20
+  Total unique cities: 20
+  Application cities: 20
 
 ============================================================
 RELATIONSHIP VALIDATION
 ============================================================
 
-Distance vs ETA correlation: 0.7374
+Distance vs ETA correlation: 0.5925
   Expected: Strong positive (>0.7)
   Status: PASS
 
 ROAD ETA by traffic level:
   traffic_level
-HIGH      36.25
-LOW       23.73
-MEDIUM    30.04
+HIGH      42.41
+LOW       26.68
+MEDIUM    33.39
   Expected: LOW < MEDIUM < HIGH
   Status: PASS
 
 ROAD ETA by weather:
   weather_condition
-CLEAR    26.64
-RAIN     29.26
-SNOW     29.35
-STORM    36.64
+CLEAR    30.33
+RAIN     31.51
+SNOW     36.53
+STORM    41.42
   Expected: CLEAR < RAIN < SNOW < STORM
 
 ETA by transfer count:
   transfer_count
-0    19.50
-1    22.70
-2    25.10
-3    24.86
+0    22.57
+1    26.04
+2    27.44
+3    31.18
   Expected: monotonically increasing
-  Status: WARN
+  Status: PASS

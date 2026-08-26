@@ -19,6 +19,7 @@ import com.optimizer.backend.graph.PathfindingAlgorithm;
 import com.optimizer.backend.graph.TransferTimeCalculator;
 import com.optimizer.backend.graph.TransportGraph;
 import com.optimizer.backend.graph.TransportGraphLoader;
+import com.optimizer.backend.ml.EtaPredictionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -32,9 +33,13 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
+import com.optimizer.backend.ml.EtaPredictionRequest;
+import com.optimizer.backend.ml.EtaPredictionResponse;
+import org.mockito.ArgumentCaptor;
+
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -48,6 +53,9 @@ class OptimizationServiceTest {
     private CityRepository cityRepository;
     @Mock
     private OptimizationResultRepository optimizationResultRepository;
+
+    @Mock
+    private EtaPredictionService etaPredictionService;
 
     @Mock
     private TransportGraphLoader graphLoader;
@@ -82,7 +90,7 @@ class OptimizationServiceTest {
 
         // Build real graph loader with mocked repos
         realGraphLoader = new TransportGraphLoader(routeRepository, transportModeRepository, cityRepository);
-        optimizationService = new OptimizationService(realGraphLoader, optimizationResultRepository, transferCalculator);
+        optimizationService = new OptimizationService(realGraphLoader, optimizationResultRepository, transferCalculator, etaPredictionService);
     }
 
     private Shipment createShipment(Long id, City source, City dest, double weight) {
@@ -334,5 +342,57 @@ class OptimizationServiceTest {
 
         assertThrows(ResourceNotFoundException.class,
                 () -> optimizationService.getByShipmentId(999L));
+    }
+
+    // ── ISSUE 8: totalTime and predictedEtaHours remain separate ──
+
+    @Test
+    void optimize_totalTimeAndPredictedEta_remainSeparate() {
+        mockRepositories(buildGraph());
+        Shipment shipment = createShipment(1L, mumbai, delhi, 500);
+
+        // Mock ML service to return a specific prediction
+        EtaPredictionResponse mlResponse = new EtaPredictionResponse(24.8, "XGBoost", "1.0");
+        when(etaPredictionService.predictEta(any(), anyDouble(), any()))
+                .thenReturn(Optional.of(mlResponse));
+
+        OptimizationResponseDTO result = optimizationService.optimize(
+                shipment, OptimizationType.CHEAPEST, astar);
+
+        // totalTime comes from graph routing (includes transfer penalties)
+        assertTrue(result.getTotalTime() > 0, "totalTime must be positive");
+
+        // predictedEtaHours comes from XGBoost (learned delay factors)
+        assertTrue(result.isEtaPredictionAvailable());
+        assertNotNull(result.getPredictedEtaHours());
+        assertEquals(24.8, result.getPredictedEtaHours(), 0.01);
+
+        // They must be DIFFERENT values — totalTime ≠ predictedEtaHours
+        assertNotEquals(result.getTotalTime(), result.getPredictedEtaHours(), 0.001,
+                "totalTime (algorithmic) must differ from predictedEtaHours (ML)");
+    }
+
+    @Test
+    void optimize_mlServiceUnavailable_optimizationStillSucceeds() {
+        mockRepositories(buildGraph());
+        Shipment shipment = createShipment(1L, mumbai, delhi, 500);
+
+        // ML service returns empty (unavailable)
+        when(etaPredictionService.predictEta(any(), anyDouble(), any()))
+                .thenReturn(Optional.empty());
+
+        OptimizationResponseDTO result = optimizationService.optimize(
+                shipment, OptimizationType.CHEAPEST, astar);
+
+        // Optimization succeeds
+        assertNotNull(result);
+        assertTrue(result.getTotalTime() > 0);
+        assertTrue(result.getTotalCost() > 0);
+
+        // ETA is null and marked unavailable
+        assertNull(result.getPredictedEtaHours(),
+                "predictedEtaHours must be null when ML is unavailable");
+        assertFalse(result.isEtaPredictionAvailable(),
+                "etaPredictionAvailable must be false when ML is unavailable");
     }
 }

@@ -16,6 +16,7 @@ import com.optimizer.backend.graph.PathfindingAlgorithm;
 import com.optimizer.backend.graph.TransferTimeCalculator;
 import com.optimizer.backend.graph.TransportGraph;
 import com.optimizer.backend.graph.TransportGraphLoader;
+import com.optimizer.backend.ml.EtaPredictionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -46,6 +47,9 @@ class OptimizationBenchmarkTest {
     @Mock
     private OptimizationResultRepository optimizationResultRepository;
 
+    @Mock
+    private EtaPredictionService etaPredictionService;
+
     private TransportGraphLoader graphLoader;
     private OptimizationService optimizationService;
 
@@ -63,7 +67,7 @@ class OptimizationBenchmarkTest {
                 .costPerKm(3.0).speed(700).carbonPerTonKm(0.602).build();
 
         graphLoader = new TransportGraphLoader(routeRepository, transportModeRepository, cityRepository);
-        optimizationService = new OptimizationService(graphLoader, optimizationResultRepository, new TransferTimeCalculator());
+        optimizationService = new OptimizationService(graphLoader, optimizationResultRepository, new TransferTimeCalculator(), etaPredictionService);
     }
 
     /**

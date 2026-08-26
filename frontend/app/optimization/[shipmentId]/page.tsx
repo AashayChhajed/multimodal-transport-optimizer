@@ -33,7 +33,7 @@ export default async function OptimizationResultsPage({
               <p className="text-lg font-semibold">${result.totalCost.toFixed(2)}</p>
             </div>
             <div className="rounded-lg border p-4">
-              <p className="text-xs text-muted-foreground">Total Time</p>
+              <p className="text-xs text-muted-foreground">Optimized Travel Time</p>
               <p className="text-lg font-semibold">{result.totalTime.toFixed(2)} hours</p>
             </div>
             <div className="rounded-lg border p-4">
@@ -45,6 +45,25 @@ export default async function OptimizationResultsPage({
               <p className="text-lg font-semibold">{result.totalCarbon.toFixed(1)} kg CO₂</p>
             </div>
           </div>
+
+          {result.etaPredictionAvailable && result.predictedEtaHours !== null ? (
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950">
+              <p className="text-xs text-muted-foreground">Predicted Delivery ETA (ML)</p>
+              <p className="text-lg font-semibold text-blue-700 dark:text-blue-300">
+                {result.predictedEtaHours.toFixed(2)} hours
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Estimated real-world delivery time including learned delay factors
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed p-4">
+              <p className="text-xs text-muted-foreground">Predicted Delivery ETA (ML)</p>
+              <p className="text-sm text-muted-foreground">
+                Not available — ML prediction service is currently offline
+              </p>
+            </div>
+          )}
 
           <div>
             <p className="mb-2 text-sm font-medium">City Path</p>

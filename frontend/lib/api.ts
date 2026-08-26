@@ -43,6 +43,8 @@ export type OptimizationResult = {
   totalCarbon: number;
   cities: string[];
   routes: OptimizationRouteStep[];
+  predictedEtaHours: number | null;
+  etaPredictionAvailable: boolean;
 };
 
 export type DashboardStats = {

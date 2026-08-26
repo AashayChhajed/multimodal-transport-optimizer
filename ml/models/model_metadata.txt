@@ -2,9 +2,31 @@
 MODEL METADATA
 ==============
 Model type:       XGBoost
-Saved at:         2026-08-21T19:36:59.685393
+Saved at:         2026-08-24T20:00:01.250981
 Python version:   3.11.x
 Dependencies:     pandas, numpy, scikit-learn, xgboost, joblib
+
+Application cities (20):
+  1. Mumbai (19.0760, 72.8777)
+  2. Delhi (28.6139, 77.2090)
+  3. Bengaluru (12.9716, 77.5946)
+  4. Chennai (13.0827, 80.2707)
+  5. Kolkata (22.5726, 88.3639)
+  6. Hyderabad (17.3850, 78.4867)
+  7. Pune (18.5204, 73.8567)
+  8. Ahmedabad (23.0225, 72.5714)
+  9. Jaipur (26.9124, 75.7873)
+  10. Lucknow (26.8467, 80.9462)
+  11. Surat (21.1702, 72.8311)
+  12. Bhopal (23.2599, 77.4126)
+  13. Indore (22.7196, 75.8577)
+  14. Nagpur (21.1458, 79.0882)
+  15. Patna (25.5941, 85.1376)
+  16. Kochi (9.9312, 76.2673)
+  17. Visakhapatnam (17.6868, 83.2185)
+  18. Bhubaneswar (20.2961, 85.8245)
+  19. Coimbatore (11.0168, 76.9558)
+  20. Guwahati (26.1445, 91.7362)
 
 Feature order (input):
   1. source_city
@@ -27,12 +49,17 @@ Preprocessing:
   Categorical features (5): OneHotEncoder
     source_city, destination_city, transport_mode, traffic_level, weather_condition
 
-Training performance:
-  MAE:  1.8639
-  R2:   0.9593
+Distance methodology:
+  Haversine formula from city coordinates (same as DataInitializer.java)
+  Range: 120.2 - 2429.0 km
 
-Model version: 1.0.0
+Training performance (on SYNTHETIC evaluation data):
+  MAE:  1.5632
+  R2:   0.9673
+
+Model version: 2.0.0
 Dataset:       Synthetic (N=3000, seed=42)
+Cities:        20 Indian cities (matching application DataInitializer)
 Pipeline:      sklearn Pipeline(preprocessor, model)
 
 Loading example:
@@ -40,3 +67,8 @@ Loading example:
     data = joblib.load("ml/models/eta_model.joblib")
     pipeline = data["pipeline"]
     # pipeline.predict(X) where X has the same columns as training data
+
+IMPORTANT DISCLAIMER:
+  This model is trained on SYNTHETIC data. Its accuracy does NOT
+  represent real-world ETA performance. The metrics above are results
+  on synthetic evaluation data only.

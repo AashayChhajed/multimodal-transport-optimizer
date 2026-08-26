@@ -18,6 +18,12 @@ public class OptimizationResponseDTO {
     private List<String> cities;
     private List<RouteStepDTO> routes;
 
+    /** ML-predicted ETA in hours (null if ML service is unavailable). */
+    private Double predictedEtaHours;
+
+    /** Whether the ML ETA prediction was available. */
+    private boolean etaPredictionAvailable;
+
     @Data
     @Builder
     public static class RouteStepDTO {

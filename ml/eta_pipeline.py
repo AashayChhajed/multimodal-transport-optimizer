@@ -1,8 +1,13 @@
 """
-Phase 3 - ETA Prediction ML Pipeline
-=====================================
+Phase 4.2 - ETA Prediction ML Pipeline
+=======================================
 
-Synthetic dataset: models trained on artificially generated delivery data.
+Synthetic dataset: models trained on artificially generated delivery data
+using the application's 20 Indian cities.
+
+The city vocabulary exactly matches the application's DataInitializer.
+Distances are computed using Haversine formula from city coordinates.
+
 NOT trained on real-world data. All results must be interpreted accordingly.
 
 Reproduction:
@@ -11,8 +16,9 @@ Reproduction:
 Outputs:
     ml/data/eta_synthetic_dataset.csv   - Generated dataset
     ml/data/data_quality_report.txt     - Data quality findings
+    ml/data/data_leakage_analysis.txt   - Data leakage analysis
     ml/reports/model_comparison.txt     - Model comparison results
-    ml/reports/final_report.txt         - Complete Phase 3 report
+    ml/reports/final_report.txt         - Complete pipeline report
     ml/models/eta_model.joblib          - Serialized model + preprocessing
     ml/models/model_metadata.txt        - Model documentation
 
@@ -20,6 +26,7 @@ Dependencies:
     pip install -r ml/requirements.txt
 """
 
+import math
 import os
 import warnings
 import numpy as np
@@ -56,58 +63,110 @@ for d in [DATA_DIR, MODEL_DIR, REPORT_DIR]:
     os.makedirs(d, exist_ok=True)
 
 # ============================================================
-# TASK 1 - SYNTHETIC DATA GENERATION DESIGN
+# APPLICATION CITIES (authoritative list from DataInitializer)
 # ============================================================
-#
-# FEATURE RELATIONSHIPS (data generation assumptions):
-#
-# 1. distance_km -> ETA: ETA = distance / effective_speed
-#    This is the dominant relationship. Speed varies by transport mode.
-#
-# 2. transport_mode -> base_speed and delay susceptibility:
-#    - ROAD:  base_speed ~ 60 km/h, high traffic/weather sensitivity
-#    - RAIL:  base_speed ~ 90 km/h, moderate weather sensitivity
-#    - AIR:   base_speed ~ 500 km/h, weather sensitivity (storms)
-#
-# 3. traffic_level -> ETA (ROAD/RAIL only):
-#    - LOW:    x1.0
-#    - MEDIUM: x1.3
-#    - HIGH:   x1.7
-#
-# 4. weather_condition -> ETA:
-#    - CLEAR:  x1.0
-#    - RAIN:   x1.1 (ROAD), x1.05 (RAIL), x1.15 (AIR - delays)
-#    - SNOW:   x1.25 (ROAD), x1.15 (RAIL), x1.05 (AIR)
-#    - STORM:  x1.5 (ROAD), x1.3 (RAIL), x1.4 (AIR)
-#
-# 5. transfer_count -> ETA: +3.0 hours per transfer (loading/unloading)
-#
-# 6. departure_hour -> traffic modifier (ROAD/RAIL):
-#    Peak hours (7-9, 17-19): x1.15 multiplier
-#
-# 7. day_of_week -> slight modifier:
-#    Weekend (6,7): x1.05 for ROAD (less traffic management)
-#
-# 8. historical_delay_rate -> additive delay:
-#    delay_hours = base_eta * historical_delay_rate * 0.5
-#
-# 9. shipment_weight_kg -> negligible direct effect on speed,
-#    but heavier shipments may have slightly more handling time:
-#    +0.001 * weight_kg hours (very small)
-#
-# 10. NOISE: Add Gaussian noise ~ N(0, 0.05 * base_eta) to prevent
-#     deterministic relationship and allow models to generalize.
-#
-# WHY THIS IS NOT LEAKAGE:
-# - All features represent information available BEFORE departure
-# - No post-departure information is used
-# - Historical delay rate is a pre-trip statistical measure
+# Coordinates sourced from DataInitializer.java seed data.
+# These are the exact 20 cities used by the multimodal transport optimizer.
+
+APPLICATION_CITIES = {
+    "Mumbai":        (19.0760, 72.8777),
+    "Delhi":         (28.6139, 77.2090),
+    "Bengaluru":     (12.9716, 77.5946),
+    "Chennai":       (13.0827, 80.2707),
+    "Kolkata":       (22.5726, 88.3639),
+    "Hyderabad":     (17.3850, 78.4867),
+    "Pune":          (18.5204, 73.8567),
+    "Ahmedabad":     (23.0225, 72.5714),
+    "Jaipur":        (26.9124, 75.7873),
+    "Lucknow":       (26.8467, 80.9462),
+    "Surat":         (21.1702, 72.8311),
+    "Bhopal":        (23.2599, 77.4126),
+    "Indore":        (22.7196, 75.8577),
+    "Nagpur":        (21.1458, 79.0882),
+    "Patna":         (25.5941, 85.1376),
+    "Kochi":         (9.9312, 76.2673),
+    "Visakhapatnam": (17.6868, 83.2185),
+    "Bhubaneswar":   (20.2961, 85.8245),
+    "Coimbatore":    (11.0168, 76.9558),
+    "Guwahati":      (26.1445, 91.7362),
+}
+
+CITY_NAMES = list(APPLICATION_CITIES.keys())
+
+# ============================================================
+# Haversine distance (same formula as DataInitializer.java)
 # ============================================================
 
+EARTH_RADIUS_KM = 6371.0
+
+
+def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Compute great-circle distance in km between two coordinate pairs."""
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = (math.sin(dlat / 2) ** 2
+         + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2))
+         * math.sin(dlon / 2) ** 2)
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return EARTH_RADIUS_KM * c
+
+
+# ============================================================
+# CITY VOCABULARY VALIDATION
+# ============================================================
+
+def validate_city_vocabulary(df: pd.DataFrame) -> None:
+    """
+    Validate that the dataset city vocabulary exactly matches the
+    application's city list. Fails the pipeline if there is a mismatch.
+    """
+    dataset_source_cities = set(df["source_city"].unique())
+    dataset_dest_cities = set(df["destination_city"].unique())
+    dataset_all_cities = dataset_source_cities | dataset_dest_cities
+    application_city_set = set(CITY_NAMES)
+
+    print(f"\n  Application cities ({len(application_city_set)}): {sorted(application_city_set)}")
+    print(f"  Dataset source cities ({len(dataset_source_cities)}): {sorted(dataset_source_cities)}")
+    print(f"  Dataset dest cities ({len(dataset_dest_cities)}): {sorted(dataset_dest_cities)}")
+    print(f"  Dataset all cities ({len(dataset_all_cities)}): {sorted(dataset_all_cities)}")
+
+    missing_in_dataset = application_city_set - dataset_all_cities
+    unexpected_in_dataset = dataset_all_cities - application_city_set
+
+    if missing_in_dataset:
+        print(f"\n  ERROR: Cities in application but missing from dataset: {sorted(missing_in_dataset)}")
+        raise ValueError(
+            f"City vocabulary mismatch: {len(missing_in_dataset)} application cities "
+            f"not found in dataset: {sorted(missing_in_dataset)}"
+        )
+
+    if unexpected_in_dataset:
+        print(f"\n  ERROR: Cities in dataset but not in application: {sorted(unexpected_in_dataset)}")
+        raise ValueError(
+            f"City vocabulary mismatch: {len(unexpected_in_dataset)} unexpected cities "
+            f"in dataset: {sorted(unexpected_in_dataset)}"
+        )
+
+    if len(dataset_all_cities) != len(application_city_set):
+        raise ValueError(
+            f"City count mismatch: dataset has {len(dataset_all_cities)}, "
+            f"application has {len(application_city_set)}"
+        )
+
+    print("  City vocabulary validation: PASS")
+
+
+# ============================================================
+# SYNTHETIC DATA GENERATION
+# ============================================================
 
 def generate_synthetic_data(n_samples: int = N_SAMPLES, seed: int = RANDOM_SEED) -> pd.DataFrame:
     """
-    Generate synthetic ETA prediction dataset with meaningful relationships.
+    Generate synthetic ETA prediction dataset using the application's 20 Indian cities.
+
+    Distances are computed via Haversine from city coordinates.
+    ETA generation logic uses the same multiplicative relationships as the
+    original Phase 3 pipeline (ROAD=60km/h, RAIL=90km/h, AIR=500km/h, etc.)
 
     Each record represents a shipment with characteristics known before departure.
     The target (actual_delivery_hours) is computed from these characteristics
@@ -115,7 +174,32 @@ def generate_synthetic_data(n_samples: int = N_SAMPLES, seed: int = RANDOM_SEED)
     """
     rng = np.random.default_rng(seed)
 
-    # --- Feature generation ---
+    # --- City pair generation ---
+    # Generate random source/destination pairs (distinct cities)
+    source_indices = rng.integers(0, len(CITY_NAMES), size=n_samples)
+    dest_indices = np.zeros(n_samples, dtype=int)
+    for i in range(n_samples):
+        while True:
+            dest_idx = rng.integers(0, len(CITY_NAMES))
+            if dest_idx != source_indices[i]:
+                dest_indices[i] = dest_idx
+                break
+
+    source_cities = [CITY_NAMES[i] for i in source_indices]
+    dest_cities = [CITY_NAMES[i] for i in dest_indices]
+
+    # --- Distance computation via Haversine ---
+    distances = np.array([
+        round(haversine(
+            APPLICATION_CITIES[source_cities[i]][0],
+            APPLICATION_CITIES[source_cities[i]][1],
+            APPLICATION_CITIES[dest_cities[i]][0],
+            APPLICATION_CITIES[dest_cities[i]][1],
+        ), 1)
+        for i in range(n_samples)
+    ])
+
+    # --- Feature generation (preserved from Phase 3) ---
 
     # Transport modes with realistic speed profiles
     transport_modes = rng.choice(["ROAD", "RAIL", "AIR"], size=n_samples, p=[0.5, 0.3, 0.2])
@@ -123,10 +207,6 @@ def generate_synthetic_data(n_samples: int = N_SAMPLES, seed: int = RANDOM_SEED)
         transport_modes == "ROAD", 60.0,
         np.where(transport_modes == "RAIL", 90.0, 500.0)
     )
-
-    # Distance: log-normal distribution (most routes are medium distance)
-    distance_km = rng.lognormal(mean=6.5, sigma=0.8, size=n_samples)
-    distance_km = np.clip(distance_km, 50, 6000).round(1)
 
     # Shipment weight: log-normal (most shipments are moderate)
     shipment_weight_kg = rng.lognormal(mean=7.0, sigma=1.2, size=n_samples)
@@ -161,9 +241,10 @@ def generate_synthetic_data(n_samples: int = N_SAMPLES, seed: int = RANDOM_SEED)
     historical_delay_rate = rng.uniform(0, 0.3, size=n_samples).round(4)
 
     # --- Target generation (actual_delivery_hours) ---
+    # All generation logic preserved exactly from Phase 3
 
     # Step 1: Base ETA from distance and mode speed
-    base_eta = distance_km / base_speeds
+    base_eta = distances / base_speeds
 
     # Step 2: Traffic multiplier (ROAD and RAIL only)
     traffic_multiplier = np.ones(n_samples)
@@ -222,16 +303,10 @@ def generate_synthetic_data(n_samples: int = N_SAMPLES, seed: int = RANDOM_SEED)
     actual_delivery_hours = actual_delivery_hours.round(2)
 
     df = pd.DataFrame({
-        "source_city": rng.choice(
-            ["Istanbul", "Ankara", "Izmir", "Bursa", "Antalya", "Adana", "Gaziantep", "Konya"],
-            size=n_samples
-        ),
-        "destination_city": rng.choice(
-            ["Istanbul", "Ankara", "Izmir", "Bursa", "Antalya", "Adana", "Gaziantep", "Konya"],
-            size=n_samples
-        ),
+        "source_city": source_cities,
+        "destination_city": dest_cities,
         "transport_mode": transport_modes,
-        "distance_km": distance_km,
+        "distance_km": distances,
         "shipment_weight_kg": shipment_weight_kg,
         "traffic_level": traffic_levels,
         "weather_condition": weather_conditions,
@@ -243,20 +318,11 @@ def generate_synthetic_data(n_samples: int = N_SAMPLES, seed: int = RANDOM_SEED)
         "actual_delivery_hours": actual_delivery_hours,
     })
 
-    # Ensure source != destination for realism (swap ~10% that match)
-    same_city = df["source_city"] == df["destination_city"]
-    swap_idx = df.index[same_city]
-    if len(swap_idx) > 0:
-        cities = ["Istanbul", "Ankara", "Izmir", "Bursa", "Antalya", "Adana", "Gaziantep", "Konya"]
-        for idx in swap_idx:
-            alternatives = [c for c in cities if c != df.loc[idx, "source_city"]]
-            df.loc[idx, "destination_city"] = rng.choice(alternatives)
-
     return df
 
 
 # ============================================================
-# TASK 2 - DATA LEAKAGE PREVENTION
+# DATA LEAKAGE ANALYSIS
 # ============================================================
 
 LEAKAGE_ANALYSIS = """
@@ -300,7 +366,7 @@ departure). No post-departure information is included.
 
 
 # ============================================================
-# TASK 4 - DATA QUALITY
+# DATA QUALITY REPORT
 # ============================================================
 
 def data_quality_report(df: pd.DataFrame) -> str:
@@ -346,6 +412,21 @@ def data_quality_report(df: pd.DataFrame) -> str:
     lines.append(f"\nTarget outliers (IQR method): {n_outliers} "
                  f"({n_outliers/len(df)*100:.1f}%)")
 
+    # Distance statistics
+    lines.append(f"\nDistance statistics:")
+    lines.append(f"  Min: {df['distance_km'].min():.1f} km")
+    lines.append(f"  Max: {df['distance_km'].max():.1f} km")
+    lines.append(f"  Mean: {df['distance_km'].mean():.1f} km")
+    lines.append(f"  Median: {df['distance_km'].median():.1f} km")
+
+    # City coverage
+    lines.append(f"\nCity coverage:")
+    lines.append(f"  Unique source cities: {df['source_city'].nunique()}")
+    lines.append(f"  Unique destination cities: {df['destination_city'].nunique()}")
+    all_cities_in_data = set(df['source_city'].unique()) | set(df['destination_city'].unique())
+    lines.append(f"  Total unique cities: {len(all_cities_in_data)}")
+    lines.append(f"  Application cities: {len(CITY_NAMES)}")
+
     # Relationship validation
     lines.append("\n" + "=" * 60)
     lines.append("RELATIONSHIP VALIDATION")
@@ -390,16 +471,17 @@ def data_quality_report(df: pd.DataFrame) -> str:
 
 def main():
     print("=" * 60)
-    print("PHASE 3 - ETA PREDICTION ML PIPELINE")
+    print("PHASE 4.2 - ETA PREDICTION ML PIPELINE")
+    print("Cities: 20 Indian cities (matching application DataInitializer)")
     print("=" * 60)
     print(f"Random seed: {RANDOM_SEED}")
     print(f"Dataset size: {N_SAMPLES} records")
     print()
 
     # ----------------------------------------------------------
-    # TASK 3 - Generate dataset
+    # STEP 6 - Generate dataset
     # ----------------------------------------------------------
-    print("[1/10] Generating synthetic dataset...")
+    print("[1/12] Generating synthetic dataset...")
     df = generate_synthetic_data()
     csv_path = os.path.join(DATA_DIR, "eta_synthetic_dataset.csv")
     df.to_csv(csv_path, index=False)
@@ -407,9 +489,15 @@ def main():
     print(f"  Shape: {df.shape}")
 
     # ----------------------------------------------------------
-    # TASK 4 - Data quality
+    # STEP 7 - City vocabulary validation
     # ----------------------------------------------------------
-    print("\n[2/10] Data quality inspection...")
+    print("\n[2/12] City vocabulary validation...")
+    validate_city_vocabulary(df)
+
+    # ----------------------------------------------------------
+    # STEP 6b - Data quality
+    # ----------------------------------------------------------
+    print("\n[3/12] Data quality inspection...")
     quality = data_quality_report(df)
     quality_path = os.path.join(DATA_DIR, "data_quality_report.txt")
     with open(quality_path, "w") as f:
@@ -418,18 +506,18 @@ def main():
     print(quality)
 
     # ----------------------------------------------------------
-    # TASK 2 - Print leakage analysis
+    # Leakage analysis
     # ----------------------------------------------------------
-    print("\n[3/10] Data leakage analysis...")
+    print("\n[4/12] Data leakage analysis...")
     print(LEAKAGE_ANALYSIS)
     leakage_path = os.path.join(DATA_DIR, "data_leakage_analysis.txt")
     with open(leakage_path, "w") as f:
         f.write(LEAKAGE_ANALYSIS)
 
     # ----------------------------------------------------------
-    # TASK 5 - Train/test split
+    # STEP 8 - Train/test split
     # ----------------------------------------------------------
-    print("\n[4/10] Train/test split...")
+    print("\n[5/12] Train/test split...")
     feature_cols = [
         "source_city", "destination_city", "transport_mode", "distance_km",
         "shipment_weight_kg", "traffic_level", "weather_condition",
@@ -489,9 +577,9 @@ def main():
           f"OneHotEncoder for {len(categorical_features)} categorical)")
 
     # ----------------------------------------------------------
-    # TASK 6 - Linear Regression
+    # STEP 9 - Linear Regression
     # ----------------------------------------------------------
-    print("\n[5/10] Training Linear Regression...")
+    print("\n[6/12] Training Linear Regression...")
     lr = LinearRegression()
     lr.fit(X_train_processed, y_train)
 
@@ -510,9 +598,9 @@ def main():
     print(f"  Test  - MAE: {lr_test_mae:.4f}  RMSE: {lr_test_rmse:.4f}  R2: {lr_test_r2:.4f}")
 
     # ----------------------------------------------------------
-    # TASK 7 - Random Forest
+    # STEP 9 - Random Forest
     # ----------------------------------------------------------
-    print("\n[6/10] Training Random Forest...")
+    print("\n[7/12] Training Random Forest...")
     rf = RandomForestRegressor(
         n_estimators=200,
         max_depth=15,
@@ -538,9 +626,9 @@ def main():
     print(f"  Test  - MAE: {rf_test_mae:.4f}  RMSE: {rf_test_rmse:.4f}  R2: {rf_test_r2:.4f}")
 
     # ----------------------------------------------------------
-    # TASK 8 - XGBoost
+    # STEP 9 - XGBoost
     # ----------------------------------------------------------
-    print("\n[7/10] Training XGBoost...")
+    print("\n[8/12] Training XGBoost...")
     xgb = XGBRegressor(
         n_estimators=300,
         max_depth=6,
@@ -571,15 +659,31 @@ def main():
     print(f"  Test  - MAE: {xgb_test_mae:.4f}  RMSE: {xgb_test_rmse:.4f}  R2: {xgb_test_r2:.4f}")
 
     # ----------------------------------------------------------
-    # TASK 9 - Model Comparison
+    # STEP 9 - Model Comparison
     # ----------------------------------------------------------
-    print("\n[8/10] Model comparison...")
+    print("\n[9/12] Model comparison...")
+
+    # Determine best model by test MAE
+    models = {
+        "Linear Regression": (lr_test_mae, lr_test_r2, lr_train_r2),
+        "Random Forest": (rf_test_mae, rf_test_r2, rf_train_r2),
+        "XGBoost": (xgb_test_mae, xgb_test_r2, xgb_train_r2),
+    }
+    best_model_name = min(models, key=lambda k: models[k][0])
+    best_mae, best_r2, best_train_r2 = models[best_model_name]
+
+    # Overfitting gaps
+    lr_gap = lr_train_r2 - lr_test_r2
+    rf_gap = rf_train_r2 - rf_test_r2
+    xgb_gap = xgb_train_r2 - xgb_test_r2
 
     comparison = f"""
 {'=' * 70}
 MODEL COMPARISON - ETA PREDICTION
 {'=' * 70}
 Dataset: {N_SAMPLES} synthetic records | Seed: {RANDOM_SEED} | Test size: {TEST_SIZE:.0%}
+Cities: {len(CITY_NAMES)} Indian cities (matching application DataInitializer)
+Distances: Haversine from city coordinates
 
 {'Model':<25} {'Train MAE':>10} {'Test MAE':>10} {'Train RMSE':>11} {'Test RMSE':>11} {'Train R2':>10} {'Test R2':>10}
 {'-' * 70}
@@ -589,59 +693,19 @@ Dataset: {N_SAMPLES} synthetic records | Seed: {RANDOM_SEED} | Test size: {TEST_
 {'=' * 70}
 
 ANALYSIS:
-"""
 
-    # Determine best model
-    models = {
-        "Linear Regression": (lr_test_mae, lr_test_r2, lr_train_r2),
-        "Random Forest": (rf_test_mae, rf_test_r2, rf_train_r2),
-        "XGBoost": (xgb_test_mae, xgb_test_r2, xgb_train_r2),
-    }
-    best_model_name = min(models, key=lambda k: models[k][0])
-    best_mae, best_r2, best_train_r2 = models[best_model_name]
-
-    comparison += f"""
 Best model by test MAE: {best_model_name} ({best_mae:.4f})
 
 Overfitting analysis:
-  Linear Regression - Train R2: {lr_train_r2:.4f}, Test R2: {lr_test_r2:.4f}, Gap: {lr_train_r2 - lr_test_r2:.4f}
-  Random Forest     - Train R2: {rf_train_r2:.4f}, Test R2: {rf_test_r2:.4f}, Gap: {rf_train_r2 - rf_test_r2:.4f}
-  XGBoost           - Train R2: {xgb_train_r2:.4f}, Test R2: {xgb_test_r2:.4f}, Gap: {xgb_train_r2 - xgb_test_r2:.4f}
-
-Key observations:
-"""
-
-    # Overfitting analysis
-    lr_gap = lr_train_r2 - lr_test_r2
-    rf_gap = rf_train_r2 - rf_test_r2
-    xgb_gap = xgb_train_r2 - xgb_test_r2
-
-    if lr_gap < 0.05:
-        comparison += "  - Linear Regression shows minimal overfitting (low train-test gap)\n"
-    else:
-        comparison += f"  - Linear Regression train-test gap ({lr_gap:.4f}) suggests {'moderate' if lr_gap < 0.15 else 'significant'} variance\n"
-
-    if rf_gap < 0.05:
-        comparison += "  - Random Forest shows good generalization\n"
-    else:
-        comparison += f"  - Random Forest train-test gap ({rf_gap:.4f}) suggests {'moderate' if rf_gap < 0.15 else 'significant'} overfitting\n"
-
-    if xgb_gap < 0.05:
-        comparison += "  - XGBoost shows good generalization\n"
-    else:
-        comparison += f"  - XGBoost train-test gap ({xgb_gap:.4f}) suggests {'moderate' if xgb_gap < 0.15 else 'significant'} overfitting\n"
-
-    comparison += f"""
-Why {best_model_name} performs best:
-  - {'Linear regression captures the dominant linear distance-ETA relationship' if best_model_name == 'Linear Regression' else 'Tree-based models capture non-linear interactions between traffic, weather, and mode'}
-  - {'Non-linear models handle multiplicative interactions between features' if best_model_name != 'Linear Regression' else 'The synthetic data has mostly linear additive relationships'}
-  - The synthetic data contains controlled non-linearity (multiplicative factors)
-    that tree-based models can exploit
+  Linear Regression - Train R2: {lr_train_r2:.4f}, Test R2: {lr_test_r2:.4f}, Gap: {lr_gap:.4f}
+  Random Forest     - Train R2: {rf_train_r2:.4f}, Test R2: {rf_test_r2:.4f}, Gap: {rf_gap:.4f}
+  XGBoost           - Train R2: {xgb_train_r2:.4f}, Test R2: {xgb_test_r2:.4f}, Gap: {xgb_gap:.4f}
 
 Interpretation of R2 scores:
   - An R2 near 1.0 on synthetic data does NOT imply real-world accuracy
   - The model may be learning the exact generation formula
   - This is expected and acceptable for a synthetic data experiment
+  - All metrics below are on SYNTHETIC evaluation data only
 """
 
     comparison_path = os.path.join(REPORT_DIR, "model_comparison.txt")
@@ -651,9 +715,9 @@ Interpretation of R2 scores:
     print(comparison)
 
     # ----------------------------------------------------------
-    # TASK 10 - Sanity Check
+    # STEP 10 - Sanity Check
     # ----------------------------------------------------------
-    print("\n[9/10] Sanity check...")
+    print("\n[10/12] Sanity check...")
     sanity_lines = []
     sanity_lines.append("=" * 60)
     sanity_lines.append("SANITY CHECK")
@@ -682,7 +746,6 @@ Interpretation of R2 scores:
     sanity_lines.append("  - Preprocessing fit only on training data: VERIFIED")
 
     sanity_lines.append("\nChecking for unrealistic patterns:")
-    # Verify no feature has near-perfect correlation with target
     for col in numeric_features:
         c = abs(df[col].corr(df[target_col]))
         if c > 0.95:
@@ -694,11 +757,10 @@ Interpretation of R2 scores:
     print(sanity_text)
 
     # ----------------------------------------------------------
-    # TASK 11 - Model Serialization
+    # STEP 11 - Model Serialization
     # ----------------------------------------------------------
-    print("\n[10/10] Saving model and metadata...")
+    print("\n[11/12] Saving model and metadata...")
 
-    # Save the full pipeline (preprocessor + model)
     # Select the best model
     if best_model_name == "Linear Regression":
         best_model = lr
@@ -713,7 +775,6 @@ Interpretation of R2 scores:
     ])
 
     # Re-fit the full pipeline on all training data
-    # (preprocessor is already fitted, but Pipeline needs consistent state)
     full_pipeline.named_steps["preprocessor"] = preprocessor
     full_pipeline.named_steps["model"] = best_model
 
@@ -730,7 +791,8 @@ Interpretation of R2 scores:
             "encoder": "OneHotEncoder (handle_unknown=ignore)",
         },
     }, model_path)
-    print(f"  Model saved: {model_path}")
+    model_size = os.path.getsize(model_path)
+    print(f"  Model saved: {model_path} ({model_size:,} bytes)")
 
     metadata = f"""
 MODEL METADATA
@@ -739,6 +801,9 @@ Model type:       {best_model_name}
 Saved at:         {datetime.now().isoformat()}
 Python version:   3.11.x
 Dependencies:     pandas, numpy, scikit-learn, xgboost, joblib
+
+Application cities ({len(CITY_NAMES)}):
+{chr(10).join(f"  {i+1}. {name} ({APPLICATION_CITIES[name][0]:.4f}, {APPLICATION_CITIES[name][1]:.4f})" for i, name in enumerate(CITY_NAMES))}
 
 Feature order (input):
 {chr(10).join(f"  {i+1}. {col}" for i, col in enumerate(feature_cols))}
@@ -750,12 +815,17 @@ Preprocessing:
   Categorical features ({len(categorical_features)}): OneHotEncoder
     {', '.join(categorical_features)}
 
-Training performance:
+Distance methodology:
+  Haversine formula from city coordinates (same as DataInitializer.java)
+  Range: {df['distance_km'].min():.1f} - {df['distance_km'].max():.1f} km
+
+Training performance (on SYNTHETIC evaluation data):
   MAE:  {best_mae:.4f}
   R2:   {best_r2:.4f}
 
-Model version: 1.0.0
+Model version: 2.0.0
 Dataset:       Synthetic (N={N_SAMPLES}, seed={RANDOM_SEED})
+Cities:        20 Indian cities (matching application DataInitializer)
 Pipeline:      sklearn Pipeline(preprocessor, model)
 
 Loading example:
@@ -763,6 +833,11 @@ Loading example:
     data = joblib.load("ml/models/eta_model.joblib")
     pipeline = data["pipeline"]
     # pipeline.predict(X) where X has the same columns as training data
+
+IMPORTANT DISCLAIMER:
+  This model is trained on SYNTHETIC data. Its accuracy does NOT
+  represent real-world ETA performance. The metrics above are results
+  on synthetic evaluation data only.
 """
     metadata_path = os.path.join(MODEL_DIR, "model_metadata.txt")
     with open(metadata_path, "w") as f:
@@ -770,27 +845,35 @@ Loading example:
     print(f"  Metadata saved: {metadata_path}")
 
     # ----------------------------------------------------------
-    # TASK 12 - Final Report
+    # STEP 12 - Final Report
     # ----------------------------------------------------------
     report = f"""
 {'=' * 70}
-PHASE 3 FINAL REPORT - ETA PREDICTION ML PIPELINE
+PHASE 4.2 FINAL REPORT - ETA PREDICTION ML PIPELINE
 {'=' * 70}
 
-1. DATASET SIZE
+1. APPLICATION CITIES ({len(CITY_NAMES)}):
+   {', '.join(CITY_NAMES)}
+
+2. DATASET SIZE
    {N_SAMPLES} records, {len(feature_cols)} features, 1 target
 
-2. FEATURE LIST
+3. FEATURE LIST
    Numerical ({len(numeric_features)}):
      {', '.join(numeric_features)}
    Categorical ({len(categorical_features)}):
      {', '.join(categorical_features)}
 
-3. TARGET DEFINITION
+4. TARGET DEFINITION
    actual_delivery_hours: Total delivery time in hours from departure
    to arrival, including transit time, transfer time, and delays.
 
-4. SYNTHETIC DATA GENERATION ASSUMPTIONS
+5. DISTANCE METHODOLOGY
+   Haversine formula from city coordinates (same as DataInitializer.java)
+   Range: {df['distance_km'].min():.1f} - {df['distance_km'].max():.1f} km
+   Mean: {df['distance_km'].mean():.1f} km
+
+6. SYNTHETIC DATA GENERATION ASSUMPTIONS
    - Base ETA = distance / transport_mode_speed
      (ROAD: 60 km/h, RAIL: 90 km/h, AIR: 500 km/h)
    - Traffic multiplier: LOW=1.0, MEDIUM=1.3, HIGH=1.7 (ROAD/RAIL)
@@ -805,78 +888,76 @@ PHASE 3 FINAL REPORT - ETA PREDICTION ML PIPELINE
    - Relationships are primarily multiplicative, creating non-linear
      interactions that tree models can exploit
 
-5. DATA QUALITY FINDINGS
+7. DATA QUALITY FINDINGS
    See: ml/data/data_quality_report.txt
    - No missing values (synthetic)
    - No duplicates
-   - All expected relationships verified (distance-ETA correlation,
-     traffic-ETA ordering, transfer-ETA monotonicity)
+   - All 20 application cities present in dataset
+   - City vocabulary matches application exactly
+   - All expected relationships verified
 
-6. TRAIN/TEST METHODOLOGY
+8. TRAIN/TEST METHODOLOGY
    - 80/20 split (random_state={RANDOM_SEED})
    - Preprocessing fit ONLY on training data
    - StandardScaler for numeric features
    - OneHotEncoder for categorical features
-   - Same preprocessing applied to test data
+   - handle_unknown="ignore" retained as defensive measure
 
-7. LINEAR REGRESSION RESULTS
-   Train - MAE: {lr_train_mae:.4f}  RMSE: {lr_train_rmse:.4f}  R2: {lr_train_r2:.4f}
-   Test  - MAE: {lr_test_mae:.4f}  RMSE: {lr_test_rmse:.4f}  R2: {lr_test_r2:.4f}
-   Gap: {lr_gap:.4f}
+9. MODEL COMPARISON
 
-8. RANDOM FOREST RESULTS
-   Train - MAE: {rf_train_mae:.4f}  RMSE: {rf_train_rmse:.4f}  R2: {rf_train_r2:.4f}
-   Test  - MAE: {rf_test_mae:.4f}  RMSE: {rf_test_rmse:.4f}  R2: {rf_test_r2:.4f}
-   Gap: {rf_gap:.4f}
+   Linear Regression:
+     Train - MAE: {lr_train_mae:.4f}  RMSE: {lr_train_rmse:.4f}  R2: {lr_train_r2:.4f}
+     Test  - MAE: {lr_test_mae:.4f}  RMSE: {lr_test_rmse:.4f}  R2: {lr_test_r2:.4f}
+     Gap: {lr_gap:.4f}
 
-9. XGBOOST RESULTS
-   Train - MAE: {xgb_train_mae:.4f}  RMSE: {xgb_train_rmse:.4f}  R2: {xgb_train_r2:.4f}
-   Test  - MAE: {xgb_test_mae:.4f}  RMSE: {xgb_test_rmse:.4f}  R2: {xgb_test_r2:.4f}
-   Gap: {xgb_gap:.4f}
+   Random Forest:
+     Train - MAE: {rf_train_mae:.4f}  RMSE: {rf_train_rmse:.4f}  R2: {rf_train_r2:.4f}
+     Test  - MAE: {rf_test_mae:.4f}  RMSE: {rf_test_rmse:.4f}  R2: {rf_test_r2:.4f}
+     Gap: {rf_gap:.4f}
 
-10. OVERFITTING ANALYSIS
-    Linear Regression gap: {lr_gap:.4f} {'(low)' if lr_gap < 0.05 else '(moderate)' if lr_gap < 0.15 else '(high)'}
-    Random Forest gap:     {rf_gap:.4f} {'(low)' if rf_gap < 0.05 else '(moderate)' if rf_gap < 0.15 else '(high)'}
-    XGBoost gap:           {xgb_gap:.4f} {'(low)' if xgb_gap < 0.05 else '(moderate)' if xgb_gap < 0.15 else '(high)'}
+   XGBoost:
+     Train - MAE: {xgb_train_mae:.4f}  RMSE: {xgb_train_rmse:.4f}  R2: {xgb_train_r2:.4f}
+     Test  - MAE: {xgb_test_mae:.4f}  RMSE: {xgb_test_rmse:.4f}  R2: {xgb_test_r2:.4f}
+     Gap: {xgb_gap:.4f}
+
+10. TRAIN/TEST GAP ANALYSIS
+    Linear Regression: {lr_gap:.4f} {'(low)' if lr_gap < 0.05 else '(moderate)' if lr_gap < 0.15 else '(high)'}
+    Random Forest:     {rf_gap:.4f} {'(low)' if rf_gap < 0.05 else '(moderate)' if rf_gap < 0.15 else '(high)'}
+    XGBoost:           {xgb_gap:.4f} {'(low)' if xgb_gap < 0.05 else '(moderate)' if xgb_gap < 0.15 else '(high)'}
 
     All models show {'low' if max(lr_gap, rf_gap, xgb_gap) < 0.05 else 'manageable'} overfitting.
     This is expected because the synthetic data has a deterministic formula
     with moderate noise. Tree models with depth limits generalize well.
 
-11. SELECTED MODEL
+11. SELECTED PRODUCTION MODEL
     {best_model_name}
     Reason: Lowest test MAE ({best_mae:.4f})
 
-12. MODEL ARTIFACT LOCATION
-    ml/models/eta_model.joblib      - Pipeline (preprocessor + model)
-    ml/models/model_metadata.txt    - Documentation and loading instructions
+12. MODEL ARTIFACT
+    Location: ml/models/eta_model.joblib ({model_size:,} bytes)
+    Metadata: ml/models/model_metadata.txt
 
-13. REPRODUCTION INSTRUCTIONS
+13. CITY VOCABULARY ALIGNMENT
+    Application cities: {len(CITY_NAMES)}
+    Dataset cities:     {df['source_city'].nunique()} source + {df['destination_city'].nunique()} destination
+    Vocabulary match:   VERIFIED (pipeline validates this)
+
+14. REPRODUCTION INSTRUCTIONS
     1. pip install -r ml/requirements.txt
     2. python ml/eta_pipeline.py
     3. Outputs appear in ml/data/, ml/models/, ml/reports/
 
-14. LIMITATIONS
+15. LIMITATIONS
     - Dataset is SYNTHETIC. Real-world performance is unknown.
     - The generation formula uses simple multiplicative relationships.
       Real ETA prediction involves more complex, domain-specific factors.
-    - No spatial features (city coordinates, road network topology).
+    - No spatial features (road network topology, traffic patterns).
     - No real-time features (live traffic, actual weather).
     - No carrier/driver-specific performance data.
     - Model performance on real data would likely be significantly worse.
     - The purpose is to demonstrate the ML pipeline structure, not to
       achieve real-world predictive accuracy.
-
-15. CONCERNS ABOUT SYNTHETIC DATASET VALIDITY
-    - The dataset is valid for its intended purpose: pipeline demonstration
-    - The generation process creates realistic relationships
-    - The noise level is calibrated to prevent perfect R2 while allowing
-      meaningful learning
-    - No data leakage was detected
-    - The dataset should NOT be used to claim real-world ETA prediction
-      capability
-    - Future phases should consider integrating with real shipment data
-      if available
+    - All metrics are on SYNTHETIC evaluation data only.
 
 {'=' * 70}
 """
@@ -885,7 +966,42 @@ PHASE 3 FINAL REPORT - ETA PREDICTION ML PIPELINE
     with open(report_path, "w") as f:
         f.write(report)
     print(f"\n  Final report saved: {report_path}")
-    print(report)
+
+    # ----------------------------------------------------------
+    # STEP 13 - Inference verification
+    # ----------------------------------------------------------
+    print("\n[12/12] Verifying model inference with application cities...")
+    test_pairs = [
+        ("Mumbai", "Delhi"),
+        ("Delhi", "Bengaluru"),
+        ("Chennai", "Kolkata"),
+        ("Hyderabad", "Pune"),
+        ("Jaipur", "Lucknow"),
+        ("Kochi", "Guwahati"),
+    ]
+
+    for src, dst in test_pairs:
+        test_input = pd.DataFrame([{
+            "source_city": src,
+            "destination_city": dst,
+            "transport_mode": "ROAD",
+            "distance_km": 500.0,
+            "shipment_weight_kg": 500.0,
+            "traffic_level": "MEDIUM",
+            "weather_condition": "CLEAR",
+            "departure_hour": 10,
+            "day_of_week": 2,
+            "month": 8,
+            "transfer_count": 1,
+            "historical_delay_rate": 0.10,
+        }])
+        prediction = full_pipeline.predict(test_input)
+        print(f"  {src} -> {dst}: {prediction[0]:.2f} hours")
+
+    print("\nPipeline complete. All outputs saved.")
+    print(f"  Dataset:  {csv_path}")
+    print(f"  Model:    {model_path}")
+    print(f"  Metadata: {metadata_path}")
 
 
 if __name__ == "__main__":
